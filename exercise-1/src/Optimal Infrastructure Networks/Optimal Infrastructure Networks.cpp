@@ -7,7 +7,7 @@
 
 #define pair_index(id1, id2) id1 * num_cities + id2
 
-const float DELTA = 0.1f;
+const float DELTA = 0.0f / 3.0f;
 const float GAMMA = 200.0f;
 
 struct city_t {
@@ -24,14 +24,17 @@ std::ostream& operator<<(std::ostream& os, city_t const& arg)
 	return os;
 }
 
-void floyd_warshall(std::vector<float> const& adj_matrix, std::vector<bool> const& util_matrix, std::vector<float>& mindist_matrix, size_t num_cities) {
+void floyd_warshall(std::vector<float> const& adj_matrix, std::vector<bool> const& util_matrix, std::vector<float>& mindist_matrix, std::vector<int>& topdist_matrix, size_t num_cities) {
 	for (int i = 0; i < num_cities; i++) {
+		topdist_matrix[pair_index(i, i)] = 0;
 		mindist_matrix[pair_index(i, i)] = 0;
 		for (int j = 0; j < num_cities; j++) {
 			if (util_matrix[pair_index(i, j)]) {
+				topdist_matrix[pair_index(i, j)] = 1;
 				mindist_matrix[pair_index(i, j)] = adj_matrix[pair_index(i, j)];
 			}
 			else {
+				topdist_matrix[pair_index(i, j)] = 0;
 				mindist_matrix[pair_index(i, j)] = std::numeric_limits<float>::infinity();
 			}
 		}
@@ -47,6 +50,10 @@ void floyd_warshall(std::vector<float> const& adj_matrix, std::vector<bool> cons
 				if (mindist_matrix[pair_index(i, j)] > route_over_k_length) {
 					mindist_matrix[pair_index(i, j)] = route_over_k_length;
 					mindist_matrix[pair_index(j, i)] = route_over_k_length;
+
+					int topological_distance = topdist_matrix[pair_index(i, k)] + topdist_matrix[pair_index(k, j)];
+					topdist_matrix[pair_index(i, j)] = topological_distance;
+					topdist_matrix[pair_index(j, i)] = topological_distance;
 				}
 			}
 		}
@@ -68,12 +75,12 @@ float infra_cost(std::vector<float> const& adj_matrix, std::vector<bool> const& 
 	return c;
 }
 
-float trans_cost(std::vector<float> const& mindist_matrix, std::vector<city_t> const& cities, size_t num_cities) {
+float trans_cost(std::vector<float> const& mindist_matrix, std::vector<int> const& topdist_matrix, std::vector<city_t> const& cities, size_t num_cities) {
 	float c = 0;
 
 	for (int i = 0; i < num_cities; i++) {
 		for (int j = i + 1; j < num_cities; j++) {
-			float effective_distance = (1.0f - DELTA) * mindist_matrix[pair_index(i, j)] + DELTA;
+			float effective_distance = (1.0f - DELTA) * mindist_matrix[pair_index(i, j)] + DELTA  * topdist_matrix[pair_index(i, j)];
 			c += cities[i].population * cities[j].population * effective_distance;
 		}
 	}
@@ -81,11 +88,11 @@ float trans_cost(std::vector<float> const& mindist_matrix, std::vector<city_t> c
 	return c; // / 2;
 }
 
-float get_total_cost(std::vector<float> const& adj_matrix, std::vector<bool> const& util_matrix, std::vector<float>& mindist_matrix, std::vector<city_t> const& cities, size_t num_cities) {
-	floyd_warshall(adj_matrix, util_matrix, mindist_matrix, num_cities);
+float get_total_cost(std::vector<float> const& adj_matrix, std::vector<bool> const& util_matrix, std::vector<int> & topdist_matrix, std::vector<float>& mindist_matrix, std::vector<city_t> const& cities, size_t num_cities) {
+	floyd_warshall(adj_matrix, util_matrix, mindist_matrix, topdist_matrix, num_cities);
 
 	float c_infra = infra_cost(adj_matrix, util_matrix, num_cities);
-	float c_trans = trans_cost(mindist_matrix, cities, num_cities);
+	float c_trans = trans_cost(mindist_matrix, topdist_matrix, cities, num_cities);
 
 	return c_infra + GAMMA * c_trans;
 }
@@ -166,6 +173,7 @@ int main()
 	std::vector<bool> util_matrix(num_cities * num_cities, true);
 	// TODO: init full, randomly, etc...
 	std::vector<float> mindist_matrix(num_cities * num_cities);
+	std::vector<int> topdist_matrix(num_cities * num_cities);
 
 	// random number generators
 	std::random_device rd;
@@ -175,10 +183,10 @@ int main()
 	// for edge selection
 	std::uniform_int_distribution<> city_dist(0, num_cities - 1);
 
-	float c_total_prev = get_total_cost(adj_matrix, util_matrix, mindist_matrix, cities, num_cities);;
+	float c_total_prev = get_total_cost(adj_matrix, util_matrix, topdist_matrix, mindist_matrix, cities, num_cities);;
 
 	// number of iterations per temperature
-	int its = 3 * num_cities * num_cities; 
+	int its = 5 * num_cities * num_cities; 
 	// initial temperature (steps: 10.0f, 1.0f, 0.1f, 0.01f)
 	float T = 10.0f;
 
@@ -196,7 +204,7 @@ int main()
 			util_matrix[index1] = !util_matrix[index1];
 			util_matrix[index2] = !util_matrix[index2];
 
-			float c_total = get_total_cost(adj_matrix, util_matrix, mindist_matrix, cities, num_cities);
+			float c_total = get_total_cost(adj_matrix, util_matrix, topdist_matrix, mindist_matrix, cities, num_cities);
 			if (c_total_prev > c_total || mc_dist(gen) > exp(-(c_total_prev - c_total) / T)) {
 				c_total_prev = c_total;
 			}
