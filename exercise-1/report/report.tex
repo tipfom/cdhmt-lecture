@@ -1,0 +1,171 @@
+\documentclass[aps,pra,showpacs,preprintnumbers,amsmath,amssymb,footinbib]{revtex4-2}
+% \documentclass[aps,pra,showpacs,twocolumn,preprintnumbers,amsmath,amssymb,footinbib]{revtex4-2}
+
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cleveref}
+%\usepackage[mathlines]{lineno}% Enable numbering of text and display math
+%\linenumbers\relax % Commence numbering lines
+
+\usepackage[%showframe,%Uncomment any one of the following lines to test 
+%scale=0.7, marginratio={1:1, 2:3}, ignoreall,% default settings
+%text={7in,10in},centering,
+%margin=1.5in,
+%total={6.5in,8.75in}, top=1.2in, left=0.9in, includefoot,
+%height=10in,a5paper,hmargin={3cm,0.8in},
+]{geometry}
+\usepackage{algorithm} 
+\usepackage[noend]{algpseudocode}
+\usepackage[caption=false]{subfig}
+
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usetikzlibrary{external}
+\tikzexternalize[prefix=plots/tmp/] % activate and define figures/ as cache folder
+
+
+\def\CC{{C\nolinebreak[4]\hspace{-.05em}\raisebox{.4ex}{\tiny\bf ++}}}
+
+
+\renewcommand{\bibsection}{%
+  \par\mbox{}%
+  \section*{References}%
+}
+
+\begin{document}
+    % metadata
+    \title{Report\\Exercise 1: Optimal Infrastructure Networks}
+    \author{Tim Pokart}
+     \email{tim.pokart@mailbox.tu-dresden.de}
+     \affiliation{Technische Universität Dresden}
+    \date{\today}
+    
+    \begin{abstract}
+        In this short report the results from an exercise on optimal infrastructure networks a graph of Germanys fourty largest are presented.
+        They were obtained using a Monte-Carlo sampling with simulated annealing and are compared to earlier findings by \citeauthor{PhysRevE.74.016117} \cite{PhysRevE.74.016117} on infrastructure networks in the continental United States.
+    \end{abstract}
+        
+    \maketitle
+
+    \tableofcontents
+
+    \section{Problem}
+
+    In real world infrastructure networks a fine balance between the cost of sustaining infrastructure and the inferred cost of not providing the best possible infrastructure have to be balanced.
+    One could, for example, provide every city in a country with a runway to enable direct airtraffic as the shortest mean of transport. 
+    This would however produce horrendous maintanence costs and would undoubtedly be unfeasible in the long run.
+    
+    To study such balances qualitatively we consider an infrastructure network $G(V, E, P, d)$ based on a weighted graph $G(V, E, d)$ with the nodes $V$ representing the $N = 40$ largest German cities and the edges $E$ weighted by respective distance of two cities $d(e)$.    
+    Furthermore each node is assigned a population by $P_i$. 
+
+    The maintanence cost \[C_{\mathrm{infra}} = \sum_{e \in E}{d(e)}\] is modeled simply by computing the total length of the infrastructure network, assuming that each unit costs roughly the same to build and sustain, which should be satisfied for large scale networks. 
+    The delay in transportation cost \[C_{\mathrm{trans}} = \frac{1}{2} \sum_{i, j \in V} P_i P_j \tilde{d}_{ij}\] is given by an effective distance $\tilde{d}_{ij}$ between two cities $i$ and $j$.
+    In addition these effective distances are weighted by the population of both cities, such that longer travels between two much populated cities are suppressed compared to such between two villages.
+    Because the total distance as well as the amount of intermediate stops on a journey contribute to the effective distance, both are considered in the model.
+    The effective distance \[\tilde{d}_{ij} = \sum_{e \in \Pi^\star_{ij}} [(1 - \delta) d(e) + \delta] = (1 - \delta) \sum_{e \in \Pi^\star_{ij}} d(e) + \delta \sum_{e \in \Pi^\star_{ij}} 1 = (1 - \delta) S_{ij} + \delta T_{ij}\] is hence chosen to accommodate both the shortest path distance $S_{ij}$ and the topological distance $T_{ij}$, quantifying the amount of nodes and therefore needed stops on the shortest path.
+    The centrality parameter $\delta \in [0, 1]$ can be chosen freely and influences the shape of the yielded network as will be discussed later.
+    The total cost of our models infrastructure network is \[C_{\mathrm{total}} = C_{\mathrm{infra}} + \gamma C_{\mathrm{trans}}\] with $\gamma = 200$ chosen to compensate the amount of cities. 
+
+    \section{Implementation}
+
+    Our goal is to minimize the total infrastructure cost $C_{\mathrm{total}}$. 
+    As there are $2^{40} \approx 10^{12}$ possible infrastructure networks an extensive search is impractical and for even larger networks impossible to obtain.
+    Therefore a Monte-Carlo sampling method with simulated annealing, similar to those employed to study the Ising-model is used.
+    The respective pseudo-code is found in \cref{alg:mcsa}.
+    To compute both the shortest path distance and the topological distance a Floyd-Warshall algorithm was employed.
+
+    \begin{algorithm}[H]
+        \caption{Monte-Carlo sampling algorithm}
+        \textbf{Input:} transportation network $G(V, E, P, d)$ \\
+        \textbf{Parameter:} centrality parameter $\delta \in [0, 1]$, cost balance $\gamma = 200$ and temperature $T$
+        \label{alg:mcsa}
+        \begin{algorithmic}[1]
+            \Procedure{MinimizeTotalCost}{}
+                \State compute old total cost $C_{\mathrm{total}}^{\mathrm{old}}$ of $G$
+                \State remove or add random edge $e \in E$ to $G$
+                \State compute new total cost $C_{\mathrm{total}}^{\mathrm{new}}$ of $G$
+                \If {$C_{\mathrm{total}}^{\mathrm{new}} < C_{\mathrm{total}}^{\mathrm{old}}$ \textbf{or} random number $\in [0, 1] < \exp(-(C_{\mathrm{total}}^{\mathrm{new}} - C_{\mathrm{total}}^{\mathrm{old}}) / T)$}
+                    \State keep change
+                \Else
+                    \State revert change
+                \EndIf
+            \EndProcedure
+            \Statex
+            \For{fixed amount of iterations} 
+                \State \Call{MinimizeTotalCost}{}
+            \EndFor
+        \end{algorithmic}
+    \end{algorithm}
+
+    
+    The temperature parameterizing the random fluctuation threshold was chosen such that it takes the values $T \in [10, 1, 0.1, 0.01]$ being descreased every $5 N^2$ Monte-Carlo iterations. 
+    We initialize $G$ as a complete graph.
+    The algorithms were implemented in \CC. 
+
+    \section{Results and Discussion}
+
+    With the technique mentioned above the results in \cref{fig:results} were obtained.
+    Similar to the results obtained by \citeauthor{PhysRevE.74.016117}, the transportation for $\delta \rightarrow 0$ and $\delta \rightarrow 1$ are clearly distinguishable.
+    Inherent in the construction of the transportation cost $C_{\mathrm{trans}}$, a strong emphasis on nearest short transportation distances is placed for $d \rightarrow 0$ with the total number of stops on a route being disregarded.
+    As a result there are two major drivers of the infrastructure networks shape: Firstly long distance connections are very unfavourable and therefore not established, even between large cities. 
+    Secondly, one city is more likely to connect to one of its larger neighbours, with direct connections to smaller neighbours being suppresed as well.
+    If $\delta \rightarrow 1$ on the other hand, only the togological distance is prominent and the network therefore tries to realize a direct route with as few intermediate nodes as possible, leading to the establishment of clusters.
+    Such clusters connect their local group and are themselves connected.
+    The prominent clusters established were the Ruhr area, Berlin, and Hamburg.
+    Again similar to the work of \citeauthor{PhysRevE.74.016117} a dominant cluster, namely the Ruhr area, establishes.
+    This is perfectly reasonable as it is the largest urban area in Germany.
+    The algorithm would therefore bias one of its cities to act as the main hub, because a huge fraction of the total population can be connected in this area with minimal network maintanance cost.
+
+
+    At the more balanced centrality parameters of $\delta = 1/3$ and $\delta = 2/3$ both effects overlap, yielding both connected neighbours and a direct connection between densily populated areas.
+    This is again in accordance to \citeauthor{PhysRevE.74.016117}.
+    
+    One could also consider the real world applications of our findings.
+    Namely three cases shall be discussed: car, public as well as aviation infrastructure.
+    
+    In the case of motorized traffic on a road, the topological distance quantifying the wait time at different nodes is negligible.
+    This stems on the fact that an autobahn can simply pass by a city without the drivers on the road being affected in any way.
+    Furthermore it might be even desirable to pass some cities when going by car, both because man can more easily navigate using known landmarks (in this case cities) and you get to see the world along.
+    The construction of road networks would therefore correspond to the case with $\delta \rightarrow 0$, considering only that drivers want to take the shortest route possible between all cities.
+
+    When traveling by plane however the situation is rather different, as the wait time for boarding, customs and TSA checks dwarfs the domestic travel time for a small country like Germany. 
+    Therefore the infrastructure should enable the passengers to travel with as few stops as possible.
+    A small caveat to consider is that the cost structure of airlines might not be reflected by the maintanence cost proposed, because they are heavily influenced by fees and runway right costs and less than $20\%$ \cite{statista.kerosin} of the total cost are dedicated to fuel.  
+    Therefore such an aviation infrastructure is best modeled by $\delta \rightarrow 1$.
+
+    Lastly for public infrastructure a trade-off between both extremes is desirable. 
+    Due to the timings of multiple connections en route densily populated areas should be connected as best as possible.
+    This is done currently e.g. by ICE Sprinter trains connecting Hamburg, Berlin and Munich on a almost stop free route.
+    However public transport should also enable elaborate and quick transport in a local area without refering to large hubs.
+    Therefore such networks correspond to parameterizations with $\delta \approx 0.5$.
+
+    \begin{figure}[H]
+        \centering
+        \subfloat[$\delta = 0$]{\begin{minipage}{0.5\linewidth}\input{plots/delta_0_3.txt.pgf}\end{minipage}}
+        \subfloat[$\delta = 1/3$]{\begin{minipage}{0.5\linewidth}\input{plots/delta_1_3.txt.pgf}\end{minipage}}
+        \\
+        \subfloat[$\delta = 2/3$]{\begin{minipage}{0.5\linewidth}\input{plots/delta_2_3.txt.pgf}\end{minipage}}
+        \subfloat[$\delta = 1$]{\begin{minipage}{0.5\linewidth}\input{plots/delta_3_3.txt.pgf}\end{minipage}}
+        \caption{Different transportation networks depending on values of the centrality parameter $\delta$.}
+        \label{fig:results}
+    \end{figure}
+
+
+    \begin{acknowledgments}
+        We wish to acknowledge Malte Schröder for posing such an interesting question, providing the data and reading through this report. 
+    \end{acknowledgments}
+
+    \appendix
+    
+    \section{GitHub}
+
+    The source code can be obtained at \url{https://github.com/tipfom/cdhmt-lecture}.
+
+    % The \nocite command causes all entries in a bibliography to be printed out
+    % whether or not they are actually referenced in the text. This is appropriate
+    % for the sample file to show the different styles of references, but authors
+    % most likely will not want to use it.
+    % \bibliography{apssamp}% Produces the bibliography via BibTeX.
+    \bibliography{refs} 
+
+\end{document}
