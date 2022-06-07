@@ -1,0 +1,12 @@
+\begin{tikzpicture}
+    \begin{axis}[ xmin=0, xmax=0.6, ymin=0, ymax=0.2, xlabel={density $\rho$}, ylabel={flow $Q$}, ytick={0,0.05,0.1,0.15,0.2}, yticklabels={0,0.05,0.1,0.15,0.2}, legend cell align={left} ]
+        \addplot[only marks, mark=*,mark options={fill=teal}] table[x=RHO,y expr=1/(5-0.05)*\thisrow{Q},col sep=semicolon] {plots/vmax5/flow_0_05.csv};
+        \addplot[only marks, mark=pentagon*,mark options={fill=violet}] table[x=RHO,y expr=1/(5-0.2)*\thisrow{Q},col sep=semicolon] {plots/vmax5/flow_0_2.csv};
+        \addplot[only marks, mark=square*,mark options={fill=purple}] table[x=RHO,y expr=1/(5-0.35)*\thisrow{Q},col sep=semicolon] {plots/vmax5/flow_0_35.csv};
+        
+        \addplot[domain=0:1, samples=10, thick, dashed] {x};
+        \path [thick] (axis cs:0,0) -- (axis cs:0.2,0.2) node[above, near end, sloped] { $Q = \rho v_{\mathrm{free}}$ };
+
+        \legend{$p=0.05$, $p=0.2$, $p=0.35$};
+    \end{axis}
+\end{tikzpicture}

@@ -1,0 +1,57 @@
+\begin{tikzpicture}
+    \pgfplotsset{
+        % this *defines* a custom colormap ...
+        colormap={inferno}{
+            rgb255=(0,0,4)
+            rgb255=(12,8,38)
+            rgb255=(36,12,79)
+            rgb255=(66,10,104)
+            rgb255=(93,18,110)
+            rgb255=(120,28,109)
+            rgb255=(147,38,103)
+            rgb255=(174,48,92)
+            rgb255=(199,62,76)
+            rgb255=(221,81,58)
+            rgb255=(237,105,37)
+            rgb255=(248,133,15)
+            rgb255=(252,165,10)
+            rgb255=(250,198,45)
+            rgb255=(242,230,97)
+            rgb255=(252,255,164)
+        }
+    }
+    \begin{axis}[
+            view={0}{90},
+            xlabel={$t$},
+            ylabel={position $i$},
+            colormap={CM}{
+                % name = inferno
+                samples of colormap=(6 of inferno)
+            },
+            colorbar sampled,
+            colormap access=piecewise constant,
+            point meta min=0,
+            point meta max=6,
+            colorbar right,
+            colorbar style={%
+                ytick=data,
+                samples=7,
+                title=$v$,
+                ytick = {0,1,2,3,4,5,6},
+                ymax=6,
+                ymin=0,
+                yticklabels ={
+                    \raisebox{9mm}{0}, 
+                    \raisebox{9mm}{1}, 
+                    \raisebox{9mm}{2}, 
+                    \raisebox{9mm}{3}, 
+                    \raisebox{9mm}{4}, 
+                    \raisebox{9mm}{5}, 
+                    \raisebox{9mm}{$ $} }
+            },
+            enlargelimits=0,
+            width=.4\textwidth
+        ]
+        \addplot[scatter, only marks, mark options={scale=0.5}, point meta=explicit] table[x=T,y=P, meta=V, col sep=semicolon] {plots/tpv_rho_0_25_p_0_05.csv};
+    \end{axis}
+\end{tikzpicture}
