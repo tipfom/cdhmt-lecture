@@ -29,5 +29,11 @@
     <CopyFileToFolders Include="distances.dat">
       <Filter>Data</Filter>
     </CopyFileToFolders>
+    <CopyFileToFolders Include="cities_new.dat">
+      <Filter>Data</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="distances_new.dat">
+      <Filter>Data</Filter>
+    </CopyFileToFolders>
   </ItemGroup>
 </Project>

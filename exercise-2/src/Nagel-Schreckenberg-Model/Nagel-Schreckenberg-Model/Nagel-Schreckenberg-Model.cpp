@@ -12,12 +12,12 @@ void update_nagel_schreckenberg(std::vector<int>& positions, std::vector<int>& v
 	{
 		// Acceleration: vi → vi + 1 if vi < vmax
 		if (velocities[i] < vmax) velocities[i]++;
-		//else {
-		//	float thr = exp(-(velocities[i] - 4.0f));
-		//	if (dec_distribution(gen) < thr) {
-		//		velocities[i]++;
-		//	}
-		//}
+		else {
+			float thr = exp(-(velocities[i] - 4.0f));
+			if (dec_distribution(gen) < thr) {
+				velocities[i]++;
+			}
+		}
 
 		// Collision avoidance : vi → max(vi, x(i + 1) − xi − 1)
 		int next_car_i = (i + 1) % positions.size();
@@ -66,10 +66,10 @@ int main()
 	int vmax = 5;
 	float p = 0.35f;
 	
-	int time_steps = 1000;
+	int time_steps = 10000;
 
 	float density_min = 0.0f;
-	float density_max = 0.6f;
+	float density_max = 0.2f;
 	int density_steps = 100;
 
 	// random number generators
@@ -89,7 +89,7 @@ int main()
 		std::vector<int> positions = prepare_positions(cars, length);
 		std::vector<int> velocities(cars, 0);
 
-		std::string res = "T;P;V\n";
+		//std::string res = "T;P;V\n";
 
 		double flow = 0;
 
@@ -97,7 +97,7 @@ int main()
 		{
 			for (int i = 0; i < cars; i++)
 			{
-				res += std::to_string(t) + ";" + std::to_string(positions[i]) + ";" + std::to_string(velocities[i]) + "\n";
+				//res += std::to_string(t) + ";" + std::to_string(positions[i]) + ";" + std::to_string(velocities[i]) + "\n";
 				flow += velocities[i];
 			}
 
@@ -109,10 +109,10 @@ int main()
 		std::string filename = std::format("tpv{}.csv", d);
 		std::cout << " writing to " << filename;
 
-		std::ofstream f;
+		/*std::ofstream f;
 		f.open(filename);
 		f << res;
-		f.close();
+		f.close();*/
 
 		std::cout << " done" << std::endl;
 	}

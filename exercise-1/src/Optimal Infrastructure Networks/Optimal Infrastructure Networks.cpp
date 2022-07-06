@@ -148,7 +148,7 @@ int main()
 {
 	// read cities
 	std::ifstream cities_file;
-	cities_file.open("cities.dat");
+	cities_file.open("cities_new.dat");
 	if (!cities_file.is_open()) {
 		std::cout << "Could not open cities.dat";
 		return 1;
@@ -160,7 +160,7 @@ int main()
 
 	// read distances    
 	std::ifstream distances_file;
-	distances_file.open("distances.dat");
+	distances_file.open("distances_new.dat");
 	if (!distances_file.is_open()) {
 		std::cout << "Could not open distances_file.dat";
 		return 1;
