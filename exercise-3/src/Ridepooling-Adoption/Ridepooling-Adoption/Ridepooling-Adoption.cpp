@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <numeric>
 #include <string>
+#include <execution>
 
 struct shared_ride_distances {
 	bool focal_user_was_paired;
@@ -17,9 +18,18 @@ struct shared_ride_distances {
 	float total_distance;
 };
 
+float *distance_lut;
+
+void generate_distance_lut(int M) {
+	distance_lut = new float[2 * M + 1];
+	for (int m = -M; m <= M; m++) {
+		distance_lut[m + M] = (float)std::sqrt(2 - 2 * std::cos(2 * M_PI * m / M));
+	}
+}
+
 inline float get_distance(int M, int m1, int m2)
 {
-	return (float)std::sqrt(2 - 2 * std::cos(2 * M_PI / M * (m1 - m2)));
+	return distance_lut[m1 - m2 + M];
 }
 
 inline float get_utility_diff(float beta, float detour)
@@ -63,16 +73,10 @@ shared_ride_distances compute_shared_ride_distances(
 		int i2 = get_offset_skipped_index(2 * i + 1, requests, offset, skip);
 		float d = get_distance(M, destination_buffer[idx_buffer[i1]], destination_buffer[idx_buffer[i2]]);
 
-		// only the second user takes a detour
-		if (idx_buffer[i2] == 0)
+		if (idx_buffer[i1] == 0 || idx_buffer[i2] == 0)
 		{
 			focal_user_was_paired = true;
 			focal_user_detour = d;
-		}
-		else if (idx_buffer[i1] == 0)
-		{
-			focal_user_was_paired = true;
-			focal_user_detour = 0;
 		}
 
 		total_distance += d;
@@ -84,23 +88,18 @@ shared_ride_distances compute_shared_ride_distances(
 void update_shortest_shared_ride(
 	shared_ride_distances& shortest_ride,
 	int M, int requests, int offset, int skip,
-	std::vector<int>& destination_buffer, std::vector<int>& idx_buffer,
-	std::function<float()> rng)
+	std::vector<int>& destination_buffer, std::vector<int>& idx_buffer)
 {
 	shared_ride_distances d = compute_shared_ride_distances(M, requests, offset, skip, destination_buffer, idx_buffer);
 	if (d.total_distance < shortest_ride.total_distance)
 	{
 		shortest_ride = d;
 	}
-	//else if (d.total_distance == shortest_ride.total_distance && rng() < 0.5f) {
-	//	shortest_ride = d;
-	//}
 }
 
 shared_ride_distances get_shortest_shared_ride(
 	int M, int requests,
-	std::vector<int>& destination_buffer, std::vector<int>& idx_buffer,
-	std::function<float()> rng) {
+	std::vector<int>& destination_buffer, std::vector<int>& idx_buffer) {
 	if (requests < 2) {
 		return { true, 0, 0 };
 	}
@@ -111,13 +110,13 @@ shared_ride_distances get_shortest_shared_ride(
 	for (int offset = 0; offset < 2; offset++) {
 		if (requests % 2 == 0)
 		{
-			update_shortest_shared_ride(shortest_ride, M, requests, offset, 1000, destination_buffer, idx_buffer, rng);
+			update_shortest_shared_ride(shortest_ride, M, requests, offset, 1000, destination_buffer, idx_buffer);
 		}
 		else
 		{
 			for (int skip = 0; skip < requests; skip++)
 			{
-				update_shortest_shared_ride(shortest_ride, M, requests, offset, skip, destination_buffer, idx_buffer, rng);
+				update_shortest_shared_ride(shortest_ride, M, requests, offset, skip, destination_buffer, idx_buffer);
 			}
 		}
 	}
@@ -125,18 +124,16 @@ shared_ride_distances get_shortest_shared_ride(
 	return shortest_ride;
 }
 
-inline int get_random_destination(int M, std::function<float()> rng)
+inline int get_random_destination(int M, std::function<int()> rng)
 {
-	int m;
-	while ((m = (int)(M * rng())) == M);
-	return m;
+	return rng();
 }
 
 void update_approximated_utility_diffs(
 	int realizations, float beta, int N, int M, float dt, const std::vector<float> & p,
 	std::vector<int>& destination_buffer, std::vector<int>& idx_buffer,
 	std::vector<float>& utility_diff_buffer, std::vector<int>& destination_counter_buffer,
-	std::function<float()> rng)
+	std::function<int()> rng, std::function<float()> rng_float)
 {
 	for (int i = 0; i < M; i++)
 	{
@@ -152,7 +149,7 @@ void update_approximated_utility_diffs(
 
 		for (int n = 1; n < N; n++) {
 			int destination = get_random_destination(M, rng);
-			if (rng() < p[destination]) {
+			if (rng_float() < p[destination]) {
 				destination_buffer[ride_sharing_requests] = destination;
 				ride_sharing_requests++;
 			}
@@ -169,10 +166,19 @@ void update_approximated_utility_diffs(
 			[&destination_buffer](size_t i1, size_t i2) {return destination_buffer[i1] < destination_buffer[i2]; });
 
 		// get shortest shared ride
-		shared_ride_distances shortest_shared_ride = get_shortest_shared_ride(M, ride_sharing_requests, destination_buffer, idx_buffer, rng);
+		shared_ride_distances shortest_shared_ride = get_shortest_shared_ride(M, ride_sharing_requests, destination_buffer, idx_buffer);
 
 		if (shortest_shared_ride.focal_user_was_paired) {
-			utility_diff_buffer[destination_buffer[0]] += get_utility_diff(beta, shortest_shared_ride.focal_user_detour);
+			int focal_destination_count = 1;
+			for (int n = 1; n < ride_sharing_requests; n++)
+			{
+				if (destination_buffer[n] == destination_buffer[0])
+				{
+					focal_destination_count++;
+				}
+			}
+
+			utility_diff_buffer[destination_buffer[0]] += get_utility_diff(beta, 0.5f * shortest_shared_ride.focal_user_detour / focal_destination_count);
 			destination_counter_buffer[destination_buffer[0]]++;
 		}
 		else {
@@ -195,7 +201,8 @@ struct ride_sharing_time_series {
 ride_sharing_time_series get_ride_sharing_time_series(
 	int realizations, int time_steps, float dt,
 	float beta, int M, int N, float p0,
-	std::function<float()> rng
+	std::function<int()> rng,
+	std::function<float()> rng_float
 )
 {
 	std::vector<int> destination_buffer = std::vector<int>(N);
@@ -210,7 +217,7 @@ ride_sharing_time_series get_ride_sharing_time_series(
 	for (int s = 0; s < time_steps; s++)
 	{
 		update_approximated_utility_diffs(
-			realizations, beta, N, M, dt, p, destination_buffer, idx_buffer, utility_diff_buffer, destination_counter_buffer, rng
+			realizations, beta, N, M, dt, p, destination_buffer, idx_buffer, utility_diff_buffer, destination_counter_buffer, rng, rng_float
 		);
 		update_adoption_probabilities(dt, p, utility_diff_buffer);
 
@@ -253,32 +260,46 @@ int main()
 	int realizations = 1000;
 	int time_steps = 1000;
 	float dt = 0.1f;
-	int M = 36;
+	int M = 360;
 	int N = 2;
 
 	float p0 = 0.5f;
 
-	// random number generation
-	std::random_device dev;
-	std::mt19937 rng(dev());
-	std::uniform_real_distribution<> dist(0, 1);
-
 	float beta_min = 1.0f;
 	float beta_max = 3.0f;
-	int beta_steps = 2;
+	int beta_steps = 21;
 
-	for (int b = 0; b < beta_steps; b++)
-	{
-		float beta = beta_min + (beta_max - beta_min) * b / (beta_steps - 1);
+	generate_distance_lut(M);
 
-		std::cout << b << ": computing N=" << N << ", p0=" << p0 << "(realizations=" << realizations << ", time_steps=" << time_steps << ") at beta=" << beta << std::endl;
+	std::vector<int> b = std::vector<int>(beta_steps);
+	std::iota(b.begin(), b.end(), 0);
 
-		ride_sharing_time_series ts = get_ride_sharing_time_series(
-			realizations, time_steps, dt, beta, M, N, p0,
-			[&dist, &rng]() -> float {
-				return (float)dist(rng);
-			}
-		);
-		save_ride_sharing_time_series(ts, N, b);
-	}
+	std::for_each(
+		std::execution::par,
+		b.begin(),
+		b.end(),
+		[&beta_min, &beta_max, &beta_steps, &time_steps, &dt, &N, &M, &p0, &realizations](int item) {
+			float beta = beta_min + (beta_max - beta_min) * item / (beta_steps - 1);
+			std::stringstream msg;
+			msg << item << ": computing N=" << N << ", p0=" << p0 << "(realizations=" << realizations << ", time_steps=" << time_steps << ") at beta=" << beta << std::endl;
+			std::cout << msg.str();
+
+			// random number generation
+			std::random_device dev;
+			std::mt19937 rng(dev());
+			std::uniform_int_distribution<> dist(0, M - 1);
+			std::uniform_real_distribution<> dist_float(0, 1);
+
+			ride_sharing_time_series ts = get_ride_sharing_time_series(
+				realizations, time_steps, dt, beta, M, N, p0,
+				[&dist, &rng]() -> int {
+					return dist(rng);
+				},
+				[&dist_float, &rng]() -> float {
+					return (float)dist_float(rng);
+				}
+				);
+			save_ride_sharing_time_series(ts, N, item);
+		}
+	);
 }
