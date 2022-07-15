@@ -1,0 +1,574 @@
+\documentclass[aps,pra,showpacs,preprintnumbers,amsmath,amssymb,nofootinbib]{revtex4-2}
+% \documentclass[aps,pra,showpacs,twocolumn,preprintnumbers,amsmath,amssymb,footinbib]{revtex4-2}
+
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cleveref}
+%\usepackage[mathlines]{lineno}% Enable numbering of text and display math
+%\linenumbers\relax % Commence numbering lines
+
+\usepackage[%showframe,%Uncomment any one of the following lines to test 
+%scale=0.7, marginratio={1:1, 2:3}, ignoreall,% default settings
+%text={7in,10in},centering,
+%margin=1.5in,
+%total={6.5in,8.75in}, top=1.2in, left=0.9in, includefoot,
+%height=10in,a5paper,hmargin={3cm,0.8in},
+]{geometry}
+\usepackage{algorithm} 
+\usepackage[noend]{algpseudocode}
+\usepackage[]{subfig}
+
+\usepackage[dvipsnames]{xcolor}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usetikzlibrary{external}
+% \usepgfplotslibrary{colormaps}
+\tikzexternalize[prefix=plots/tmp/] % activate and define figures/ as cache folder
+
+% \definecolor{bty1}{HTML}{d0f400}
+% \definecolor{bty2}{HTML}{d0ee11}
+% \definecolor{bty3}{HTML}{c9e52f}
+% \definecolor{bty4}{HTML}{a6d75b}
+% \definecolor{bty5}{HTML}{76c68f}
+% \definecolor{bty6}{HTML}{48b5c4}
+% \definecolor{bty7}{HTML}{22a7f0}
+% \definecolor{bty8}{HTML}{1984c5}
+% \definecolor{bty9}{HTML}{115f9a}
+
+\definecolor{bty9}{HTML}{0000b3}
+\definecolor{bty8}{HTML}{0010d9}
+\definecolor{bty7}{HTML}{0020ff}
+\definecolor{bty6}{HTML}{0040ff}
+\definecolor{bty5}{HTML}{0060ff}
+\definecolor{bty4}{HTML}{0080ff}
+\definecolor{bty3}{HTML}{009fff}
+\definecolor{bty2}{HTML}{00bfff}
+\definecolor{bty1}{HTML}{00ffff}
+
+\def\CC{{C\nolinebreak[4]\hspace{-.05em}\raisebox{.4ex}{\tiny\bf ++}}}
+
+\renewcommand{\bibsection}{%
+  \par\mbox{}%
+  \section*{References}%
+}
+
+\begin{document}
+    % metadata
+    \title{Report\\{Exercise 3: Ridepooling adoption dynamics}}
+    \author{Tim Pokart}
+     \email{tim.pokart@mailbox.tu-dresden.de}
+     \affiliation{Technische Universität Dresden}
+    \date{\today}
+    
+    \begin{abstract}
+        In this short report the results from an exercise on the dynamics of ridepooling adoption are presented, comparing our own implementation to the previous work by \citeauthor{Wolf_2022} \cite{Wolf_2022}.
+    \end{abstract}
+        
+    \maketitle
+
+    \tableofcontents
+
+    \section{Problem}
+
+    Collective transportation offers a great opportunity to cut costs for individuals while also decreasing the climate impact of travelling. 
+    To simultaneously allow for personal flexibility, which is not offered by e.g. bus-lines and trains, ridepoolings in smaller busses and cars is a promising solution.
+    With ridepooling multiple users will be transported in the same vehicle to their desired destination instead of individually.
+    Such shared mobility services are currently rolled out. 
+    Some examples include UberX Share\cite{uberx_share}, CleverShuttle\cite{clevershuttle} and locally in Dresden MOBIshuttle\cite{dvb_mobishuttle}.
+
+    We seek to understand the conditions under which such ridepooling options are adopted by its users.
+    Since the adoption of ridepooling is primarly based on the personal gain of its users, we introduce the following multi-agent model\cite{SC22}:
+    In total $N$ agents will request a ride from a single shared location, set to be the origin. 
+    On a circle of radius $r = 1$ lie $M$ equidistant destinations $\phi_i = \frac{i}{M} 2\pi$, of which each agent chooses one randomly. 
+    Afterwards every agents decides to request or not to request a pooled ride based on a probability $p_{\phi_i}$ depending on his destination.
+    We then serve pairs of those agents who selected to share their ride simultaneously, such that one of them suffers a detour in comparison to a single ride.
+    Both receive the incentive of a discounted ride however and the pairs will be selected such that the overall detour is as small as possible (and the service is as user friendly as possible).
+    The usefulness or utility $\Delta u$ of sharing their ride is then computed for the agents according to \[\Delta u  = 1 - \beta \Delta d.\]
+    Here $\Delta d$ is the detour due to sharing the ride.
+    If a pair of agents request the destionation $\phi_i$ and $\phi_j$ the detour will be \[\Delta d = \sqrt{2 - 2 \cos (\phi_i - \phi_j)}.\] 
+    We set the financial incentive to share the ride to $1$ with $\beta$ modeling the worth of the agents time.
+    If $\beta$ is large each agent values his time a lot and the detour is extremly bad received.
+    We note that each agent receives the advantage of cutting the cost on his ride even if he is not paired with someone else and therefore $\Delta d = 0$.
+
+    The agents then update their probability to request a shared ride based on their experience according to \[p^{\phantom{'}}_\phi\rightarrow p'_\phi = p_\phi + \Delta t \,p^{\phantom{'}}_\phi\, (1- p^{\phantom{'}}_\phi)\, E[\Delta u^{\phantom{'}}_\phi].\]
+    Here $\Delta t$ is an integration constant and $E[\Delta u(\phi)]$ is the expected utility of a destination $\phi$.
+    The algorithm to integrate the dynamics above is outlined in \cref{alg:ride-pooling}.
+
+    \begin{algorithm}[H]
+        \caption{Ride-Pooling model integration}
+        \label{alg:ride-pooling}
+        \textbf{Input:} agents $N$, destinations $M$, time steps $T$, $\Delta t$, realisations $R$, parameter $\beta$ \\
+        \textbf{Parameter:} initial ride sharing probability $p_0$ 
+
+        \begin{algorithmic}[1]
+            \Procedure{EstimateUtility}{$p_{\phi_i}$}
+                \State $\Delta u^{\text{acc}} _{\phi_i} \leftarrow 0$ \Comment{Initialize accumulated utility}
+                \State $\text{count}_{\phi_i} \leftarrow 0$
+                \For {$R$ realisations}
+                    \State $\phi_n \leftarrow \text{uniform random destination}$ \Comment{Assign each agent a random destination}
+                    \State $s_n \leftarrow \text{sharing decision with probability} \;p_{\phi_n}$ \Comment{Decide for each agent whether to pool the ride}
+                    \State $s_0 \leftarrow \textbf{true}$ \Comment{The focal agent always requests a shared ride}
+                    \State $\Delta d \leftarrow $ \Call{ShortestRideFocalAgentDetour}{} \Comment{Focal agent detour for the overall shortest ride}
+                    \State $m \leftarrow $ \Call{GetFocalDestinationMultiplicity}{$\phi_n$, $s_n$}
+                    \State $\Delta u^{\text{acc}}_{\phi_0} \leftarrow \Delta u^{\text{acc}}_{\phi_0} + (1 - \beta \frac{1}{m} \Delta d)$ 
+                    \State $\text{count}_{\phi_0} \leftarrow \text{count}_{\phi_0} + 1$
+                \EndFor
+                \State \Return $\Delta u^{\text{acc}}_{\phi_i} / \text{count}_{\phi_i}$
+            \EndProcedure
+            \Statex
+            \State $p_{\phi_i} \leftarrow p_0$
+            \For{$T$ timesteps} 
+                \State $u_{\phi_i} \leftarrow$ \Call{EstimateUtility}{$p_{\phi_i}$}
+                \State $p_{\phi_i} \leftarrow p_{\phi_i} + \Delta t \; p_{\phi_i} \; (1 - p_{\phi_i}) \; u_{\phi_i}$
+            \EndFor
+        \end{algorithmic}
+    \end{algorithm}
+
+    In order to obtain the focal agents detour in the shortest overall ride multiple implementations are feasible depending on the desired accuracy of the shortest path.
+    Since the runtime of the algorithm is itself critical, since we desire to compute as many iterations as possible, here two heuristic approaches are presented.
+    The \cref{alg:focal_agent_detour_n2} concerns problems with $N = 2$ solely, while \cref{alg:focal_agent_detour_ng2} allows for $N > 2$ as well\footnote{We note that both algorithms are pseudocode and feature obvious performance deficiencies in order to increase readability. Depending on the paradigm used to implement the program, one has to consider various improvements.}.
+    One notices that \cref{alg:focal_agent_detour_n2} returns the shortest shared ride detour for $N = 2$. 
+    In \cref{sec:extensions} we will discuss algorithms for computing the perfect matching.
+    \begin{algorithm}[H]
+        \caption{Focal agent detour for $N = 2$}
+        \label{alg:focal_agent_detour_n2}   
+             
+        \begin{algorithmic}[1]
+            \Procedure{ShortestRideFocalAgentDetour}{$\phi_n$, $s_n$}
+                \If {$s_1 = \textbf{true}$}
+                    \State \Return $\frac{1}{2}$ \Call{Distance}{$\phi_0$, $\phi_1$} \Comment{$\frac{1}{2}$ as average pair detour}
+                \EndIf
+                \State \Return $0$
+            \EndProcedure
+        \end{algorithmic}
+    \end{algorithm}
+    \begin{algorithm}[H]
+        \caption{Focal agent detour for $N > 2$}
+        \label{alg:focal_agent_detour_ng2}  
+             
+        \begin{algorithmic}[1]
+            \Procedure{ShortestRideFocalAgentDetour}{$\phi_n$, $s_n$}
+                \For {$i \in N$} \Comment{Discard single ride agents}
+                    \If {$s_i = \mathbf{false}$}
+                        \State $\phi_n \leftarrow \phi_n \setminus \phi_i$
+                    \EndIf
+                \EndFor
+                \State $\phi_n \leftarrow $ \Call{Sort}{$\phi_n$} 
+                \State $d^{\mathrm{min}} \leftarrow \infty; \Delta d_i^{\mathrm{min}} \leftarrow 0$ \Comment{Shortest found ride length}                
+                \If {$N \equiv 0 \mod 2$} \Comment{$N$ is even}
+                    \State $d, \Delta d_i \leftarrow $ \Call{ShortestPairedRideLengthAndDetour}{${\phi}_n$}
+                \Else \Comment{$N$ is odd}
+                    \For {\textbf{each} remaining agent $i$}
+                        \State $\hat{\phi}_n \leftarrow \phi_n \setminus \phi_i$ \Comment{Temporarly remove agent $i$}
+                        \State $d, \Delta d_i \leftarrow $ \Call{ShortestPairedRideLengthAndDetour}{$\hat{\phi}_n$}
+                        \If {$d < d^{\mathrm{min}}$}
+                            \State $d^{\mathrm{min}} = d$
+                            \State $\Delta d_i^{\mathrm{min}} = \Delta d_i$
+                        \EndIf
+                    \EndFor
+                \EndIf
+
+                \State \Return \Call{GetFocalAgentDetour}{$\phi_n$, $\Delta d_i^{\mathrm{min}}$}
+            \EndProcedure
+            \Statex
+            \Procedure{GetFocalAgentDetour}{$\phi_n$, $\Delta d_n$}
+                \State multiplicity $m = 0$, detour $\Delta d$
+                \For{user $i \in N$}
+                    \If {$\phi_0 = \phi_i $}
+                        \State $m \leftarrow m + 1$, $\Delta d \leftarrow \Delta d + \Delta d_i$ \Comment{Accumulate detours to the same destination}
+                    \EndIf
+                \EndFor
+                \State \Return $\Delta d / m$
+            \EndProcedure
+        \end{algorithmic}      
+    \end{algorithm}
+    The algorithm to compute the shortest ride length and detour for between the two pairings is described in \cref{alg:shortest_paired_ride_detour}.
+
+    \section{Results and Discussion}
+
+    Here we present the results obtained using our code and compare them to the paper by \citeauthor{Wolf_2022}.
+    The parameters proposed in the exercise \cite{SC22} were adapted to $M = 360$, realisations $R = 10000$ and for the time we chose $t \in [0, 10000]$ with $\Delta t = 0.1$.
+    We introduce the average adoption probability 
+    \begin{align*}
+        P_{\mathrm{share}} = \frac{1}{M} \sum_{m} p_{\phi_m}
+    \end{align*}
+    in order to characterize our system.
+    If $P_{\mathrm{share}} = 1$ the system is in a fully sharing state, meaning that every agent requests a shared ride.
+
+
+    \subsection{Two agents}
+    We present the results for $N = 2$ agents first. 
+    The average adoption probability for $\beta \in [1.0, 3.0]$ is plotted in \cref{fig:n2p0050}.
+    \begin{figure}[H]
+        \begin{tikzpicture}
+            \begin{axis}[
+                    xmode=log,
+                    xlabel = {time $t$},
+                    xmin=1, xmax=3000, 
+                    ylabel={adoption probability $P_{\mathrm{share}}$}, 
+                    legend pos=south east,
+                    width=\linewidth,
+                ]
+                \addplot[very thick,solid,color=black] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_0.csv};
+                \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_1.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_2.csv};
+                \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_3.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_4.csv};
+                \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_5.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_6.csv};
+                \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_7.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_8.csv};
+                \addplot[very thick,solid,color=Turquoise] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_9.csv};
+                \addplot[very thick,dashed,color=Mulberry] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_10.csv};
+                \addplot[very thick,dotted,color=Emerald] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_11.csv};
+                \addplot[very thick,solid,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_12.csv};
+                \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_13.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_14.csv};
+                \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_15.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_16.csv};
+                \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_17.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_18.csv};
+                \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_19.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n2/ts/trim_ts_2_20.csv};
+                \legend{$\beta = 1.0$,$\beta = 1.1$,$\beta = 1.2$,$\beta = 1.3$,$\beta = 1.4$,$\beta = 1.5$,$\beta = 1.6$,$\beta = 1.7$,$\beta = 1.8$,$\beta = 1.9$,$\beta = 2.0$,$\beta = 2.1$,$\beta = 2.2$,$\beta = 2.3$,$\beta = 2.4$,$\beta = 2.5$,$\beta = 2.6$,$\beta = 2.7$,$\beta = 2.8$,$\beta = 2.9$,$\beta = 3.0$}
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Average adoption probability $P_{\mathrm{share}}$ for $N=2$ and $p_0 = 0.50$ depending on the time $t$.}
+        \label{fig:n2p0050}
+    \end{figure}
+    One notices a qualitative change in the time evolution at $\beta=1.6$.
+    For $\beta < 1.6$ the average adoption probability converges towards $P_{\mathrm{share}} = 1.0$ and therefore the system ends in a fully sharing state.
+    When $\beta > 1.6$ however, $P_{\mathrm{share}}$ initially increases but collapses to a partially sharing state after some time.
+    Both findings are in line with the paper by \citeauthor{Wolf_2022} which predicted a phase transition at $\beta \approx 1.6$ as well.
+    We hence choose $\beta=1.3$ and $\beta = 1.9$ from the fully and partially sharing regions respectively and plot the time evolution of their angle resolved sharing probability in \cref{fig:time-evolution-n2}.
+    One notices that the partially sharing state is realized by creating a region of full sharing and a region of no sharing.
+    
+    \begin{figure}
+        \centering
+        \subfloat[$\beta=1.3$] {
+            \begin{tikzpicture}
+                \begin{axis}[xtick = {0, pi/2, pi, 3*pi/2, 2*pi}, ymin=0, ymax=1.1, xmin=0, xmax=2*pi, xticklabels={0, $\pi/2$, $\pi$, $3\pi/2$, $2\pi$}, cycle list name = mark list, width=0.49\linewidth, legend style={at={(axis cs: pi,0.1)},anchor=south}]
+                    \addplot[very thick,solid,color=black] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_3/shift_dp_2_5-0.csv};
+                    \addplot[mark=triangle*,only marks,very thick,solid,mark options={draw=bty1,fill=bty1}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_3/shift_dp_2_5-1.csv};
+                    \addplot[mark=square*,only marks,very thick,solid,mark options={draw=bty3,fill=bty3}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_3/shift_dp_2_5-3.csv};
+                    \addplot[mark=diamond*,only marks,very thick,solid,mark options={draw=bty5,fill=bty5}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_3/shift_dp_2_5-15.csv};
+                    \addplot[mark=pentagon*,only marks,very thick,solid,mark options={draw=bty9,fill=bty9}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_3/shift_dp_2_5-30.csv};
+                    \legend{$t=0$, $t=5$, $t=15$, $t=65$, $t=150$}
+                \end{axis}
+            \end{tikzpicture}    
+        }
+        \subfloat[$\beta=1.9$]{
+            \begin{tikzpicture}
+                \begin{axis}[xtick = {0, pi/2, pi, 3*pi/2, 2*pi}, ymin=0, ymax=1.1, xmin=0, xmax=2*pi, xticklabels={0, $\pi/2$, $\pi$, $3\pi/2$, $2\pi$}, cycle list name = mark list, width=0.49\linewidth, legend style={at={(axis cs: pi,0.1)},anchor=south}]
+                    \addplot[very thick,solid,color=black] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_9/shift_dp_2_4-0.csv};
+                    \addplot[mark=triangle*,only marks,very thick,solid,mark options={draw=bty1, fill=bty1}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_9/shift_dp_2_4-1.csv};
+                    \addplot[mark=square*,only marks,very thick,solid,mark options={draw=bty3, fill=bty3}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_9/shift_dp_2_4-3.csv};
+                    \addplot[mark=diamond*,only marks,very thick,solid,mark options={draw=bty5, fill=bty5}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_9/shift_dp_2_4-15.csv};
+                    \addplot[mark=pentagon*,only marks,very thick,solid,mark options={draw=bty9, fill=bty9}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n2/beta_1_9/shift_dp_2_4-30.csv};
+                    \legend{$t=0$, $t=5$, $t=15$, $t=65$, $t=150$}
+                \end{axis}
+            \end{tikzpicture}
+        }
+        \caption{Time evolution of the angle resolved sharing probability $p_\phi (t)$ for $N = 2$ and $p_0 = 0.50$.}
+        \label{fig:time-evolution-n2}
+    \end{figure}
+
+    \section{Eight agents}
+
+    We depict similar time evolutions of the average adoption probability in \cref{fig:n8p0005,fig:n8p0095} for two different initial sharing probabilities $p_0 = 0.05$ and $p_0 = 0.95$ with $\beta \in [2.0, 5.0]$.
+    Once again, small values of $\beta$ lead to the adoption of a fully sharing state, for high values of $\beta$ a partially sharing state is adopted.
+    However, for values of $\beta \in [3.0, 4.3]$ the behaviour is different for the two initial sharing probabilities. 
+    If $p_0$ is smaller initially, partial sharing is adopted in these cases, which is different to the case of a higher $\beta$ where full sharing is adopted.
+    In \cref{fig:time-evolution-n8-p0-005,fig:time-evolution-n8-p0-095} the respective angle resolved time evolutions of interesting $\beta$ are depicted.
+    Similar behaviour to the case for $N =2$ is observed.
+
+    \begin{figure}
+        \begin{tikzpicture}
+            \begin{axis}[
+                    xmode=log,
+                    xlabel = {time $t$},
+                    xmin=1, xmax=10000, 
+                    ylabel={adoption probability $P_{\mathrm{share}}$}, 
+                    legend pos=south east,
+                    legend columns=3,
+                    width=\linewidth,
+                    height=0.48\textheight,
+                ]
+                \addplot[very thick,solid,color=black] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_0.csv};
+                \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_1.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_2.csv};
+                \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_3.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_4.csv};
+                \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_5.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_6.csv};
+                \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_7.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_8.csv};
+                \addplot[very thick,solid,color=Turquoise] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_9.csv};
+                \addplot[very thick,dashed,color=Mulberry] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_10.csv};
+                \addplot[very thick,dotted,color=Emerald] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_11.csv};
+                \addplot[very thick,solid,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_12.csv};
+                \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_13.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_14.csv};
+                \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_15.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_16.csv};
+                \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_17.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_18.csv};
+                \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_19.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_20.csv};
+                \addplot[very thick,solid,,color=Emerald] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_21.csv};
+                \addplot[very thick,dashed,,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_22.csv};
+                \addplot[very thick,dotted,,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_23.csv};
+                \addplot[very thick,solid,,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_24.csv};
+                \addplot[very thick,dashed,,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_25.csv};
+                \addplot[very thick,dotted,,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_26.csv};
+                \addplot[very thick,solid,,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_27.csv};
+                \addplot[very thick,dashed,,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_28.csv};
+                \addplot[very thick,dotted,,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_29.csv};
+                \addplot[very thick,solid,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_30.csv};
+                \legend{$\beta=2.0$,$\beta=2.1$,$\beta=2.2$,$\beta=2.3$,$\beta=2.4$,$\beta=2.5$,$\beta=2.6$,$\beta=2.7$,$\beta=2.8$,$\beta=2.9$,$\beta=3.0$,$\beta=3.1$,$\beta=3.2$,$\beta=3.3$,$\beta=3.4$,$\beta=3.5$,$\beta=3.6$,$\beta=3.7$,$\beta=3.8$,$\beta=3.9$,$\beta=4.0$,$\beta=4.1$,$\beta=4.2$,$\beta=4.3$,$\beta=4.4$,$\beta=4.5$,$\beta=4.6$,$\beta=4.7$,$\beta=4.8$,$\beta=4.9$,$\beta=5.0$,}
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Average adoption probability $P_{\mathrm{share}}$ for $N=8$ and $p_0 = 0.05$  depending on the time $t$.}
+        \label{fig:n8p0005}
+    \end{figure}
+
+    \begin{figure}
+        \begin{tikzpicture}
+            \begin{axis}[
+                    xmode=log,
+                    xlabel = {time $t$},
+                    xmin=1, xmax=10000, 
+                    ylabel={adoption probability $P_{\mathrm{share}}$}, 
+                    legend pos=south east,
+                    legend columns=3,
+                    width=\linewidth,
+                    height=0.48\textheight,
+                ]
+                \addplot[very thick,solid,color=black] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_0.csv};
+                \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_1.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_2.csv};
+                \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_3.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_4.csv};
+                \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_5.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_6.csv};
+                \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_7.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_8.csv};
+                \addplot[very thick,solid,color=Turquoise] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_9.csv};
+                \addplot[very thick,dashed,color=Mulberry] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_10.csv};
+                \addplot[very thick,dotted,color=Emerald] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_11.csv};
+                \addplot[very thick,solid,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_12.csv};
+                \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_13.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_14.csv};
+                \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_15.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_16.csv};
+                \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_17.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_18.csv};
+                \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_19.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_20.csv};
+                \addplot[very thick,solid,color=Emerald] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_21.csv};
+                \addplot[very thick,dashed,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_22.csv};
+                \addplot[very thick,dotted,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_23.csv};
+                \addplot[very thick,solid,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_24.csv};
+                \addplot[very thick,dashed,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_25.csv};
+                \addplot[very thick,dotted,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_26.csv};
+                \addplot[very thick,solid,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_27.csv};
+                \addplot[very thick,dashed,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_28.csv};
+                \addplot[very thick,dotted,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_29.csv};
+                \addplot[very thick,solid,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_95/ts/trim_ts_8_30.csv};
+                \legend{$\beta=2.0$,$\beta=2.1$,$\beta=2.2$,$\beta=2.3$,$\beta=2.4$,$\beta=2.5$,$\beta=2.6$,$\beta=2.7$,$\beta=2.8$,$\beta=2.9$,$\beta=3.0$,$\beta=3.1$,$\beta=3.2$,$\beta=3.3$,$\beta=3.4$,$\beta=3.5$,$\beta=3.6$,$\beta=3.7$,$\beta=3.8$,$\beta=3.9$,$\beta=4.0$,$\beta=4.1$,$\beta=4.2$,$\beta=4.3$,$\beta=4.4$,$\beta=4.5$,$\beta=4.6$,$\beta=4.7$,$\beta=4.8$,$\beta=4.9$,$\beta=5.0$,}
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Average adoption probability $P_{\mathrm{share}}$ for $N=8$ and $p_0 = 0.95$ depending on the time $t$.}
+        \label{fig:n8p0095}
+    \end{figure}
+        
+    \begin{figure}
+        \begin{tikzpicture}
+            \begin{axis}[xtick = {0, pi/2, pi, 3*pi/2, 2*pi}, ymin=0, ymax=1.1, xmin=0, xmax=2*pi, xticklabels={0, $\pi/2$, $\pi$, $3\pi/2$, $2\pi$}, cycle list name = mark list, width=0.7\linewidth]
+                \addplot[very thick,solid,color=black] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_95/beta_5_0/shift_dp_8_0-0.csv};
+                \addplot[mark=triangle*,only marks,very thick,solid,mark options={draw=bty1,fill=bty1}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_95/beta_5_0/shift_dp_8_0-1.csv};
+                \addplot[mark=square*,only marks,very thick,solid,mark options={draw=bty3,fill=bty3}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_95/beta_5_0/shift_dp_8_0-3.csv};
+                \addplot[mark=diamond*,only marks,very thick,solid,mark options={draw=bty5,fill=bty5}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_95/beta_5_0/shift_dp_8_0-5.csv};
+                \addplot[mark=pentagon*,only marks,very thick,solid,mark options={draw=bty9,fill=bty9}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_95/beta_5_0/shift_dp_8_0-10.csv};
+                \legend{$t=0$, $t=5$, $t=15$, $t=25$, $t=50$}
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Time evolution of the angle resolved sharing probability $p_\phi (t)$ at $\beta = 5.0$ for $N = 8$ and $p_0 = 0.95$.}
+        \label{fig:time-evolution-n8-p0-095}
+    \end{figure}
+    
+    \begin{figure}
+        \subfloat[$\beta = 5.0$]{
+            \begin{tikzpicture}
+                \begin{axis}[xtick = {0, pi/2, pi, 3*pi/2, 2*pi}, ymin=0, ymax=1.1, xmin=0, xmax=2*pi, xticklabels={0, $\pi/2$, $\pi$, $3\pi/2$, $2\pi$}, cycle list name = mark list, width=0.48\linewidth]
+                    \addplot[very thick,solid,color=black] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_5_0/shift_dp_8_1-0.csv};
+                    \addplot[mark=triangle*,only marks,very thick,solid,mark options={draw=bty1,fill=bty1}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_5_0/shift_dp_8_1-1.csv};
+                    \addplot[mark=square*,only marks,very thick,solid,mark options={draw=bty3,fill=bty3}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_5_0/shift_dp_8_1-3.csv};
+                    \addplot[mark=diamond*,only marks,very thick,solid,mark options={draw=bty5,fill=bty5}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_5_0/shift_dp_8_1-5.csv};
+                    \addplot[mark=pentagon*,only marks,very thick,solid,mark options={draw=bty9,fill=bty9}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_5_0/shift_dp_8_1-10.csv};
+                    \legend{$t=0$, $t=5$, $t=15$, $t=25$, $t=50$}
+                \end{axis}
+            \end{tikzpicture}
+        }
+        \subfloat[$\beta = 3.6$]{
+            \begin{tikzpicture}
+                \begin{axis}[xtick = {0, pi/2, pi, 3*pi/2, 2*pi}, ymin=0, ymax=1.1, xmin=0, xmax=2*pi, xticklabels={0, $\pi/2$, $\pi$, $3\pi/2$, $2\pi$}, cycle list name = mark list, width=0.48\linewidth]
+                    \addplot[very thick,solid,color=black] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_3_6/shift_dp_8_2-0.csv};
+                    \addplot[mark=triangle*,only marks,very thick,solid,mark options={draw=bty1,fill=bty1}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_3_6/shift_dp_8_2-1.csv};
+                    \addplot[mark=square*,only marks,very thick,solid,mark options={draw=bty3,fill=bty3}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_3_6/shift_dp_8_2-3.csv};
+                    \addplot[mark=diamond*,only marks,very thick,solid,mark options={draw=bty5,fill=bty5}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_3_6/shift_dp_8_2-5.csv};
+                    \addplot[mark=pentagon*,only marks,very thick,solid,mark options={draw=bty9,fill=bty9}] table[x expr=2*pi*\thisrow{m}/360,y=p, col sep=semicolon] {plots/n8/p0_0_05/beta_3_6/shift_dp_8_2-10.csv};
+                    \legend{$t=0$, $t=5$, $t=15$, $t=25$, $t=50$}
+                \end{axis}
+            \end{tikzpicture}
+        }
+        \caption{Time evolution of the angle resolved sharing probability $p_\phi (t)$ for $N = 8$ and $p_0 = 0.05$.}
+        \label{fig:time-evolution-n8-p0-005}
+    \end{figure}
+
+    One immediate observation from the findings is that it is favourable to start of with a high adoption probability in order to kickstart the service and obtain full sharing.
+    This could for example be achieved by offering substantial discounts in the early roll-out phase of the service.
+
+
+    \newpage
+    \section{Extensions}
+    \label{sec:extensions}
+    
+    Multiple extensions to the original problem come to mind. 
+    One could introduce a more complex geometry to model real world scenaries more closely, which was not done in this report however.
+    Instead, we implemented a branch-and-bound based perfect matching algorithm.
+    The results are depicted in \cref{fig:branchandbound}.
+    They show a qualitative difference between the greedy implementation and the exact one, despite improving only $\approx 2\%$ of the realisations.
+    First and foremost the convergence towards a partially or fully sharing state seems to happen faster and some previously partially sharing states converge towards fully sharing.
+    The sharing amplitude is higher as well.
+    This can be explained by the overall shorter trips and therefore higher expected utility of the implementation.
+    
+
+    \begin{figure}[hbt]
+        \begin{tikzpicture}
+            \begin{axis}[
+                    xmode=log,
+                    xlabel = {time $t$},
+                    xmin=1, xmax=10000, 
+                    ylabel={adoption probability $P_{\mathrm{share}}$}, 
+                    legend pos=south east,
+                    legend columns=3,
+                    width=\linewidth,
+                ]
+                \addplot[very thick,solid,color=black] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_0.csv};
+                % \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_1.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_2.csv};
+                % \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_3.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_4.csv};
+                % \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_5.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_6.csv};
+                % \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_7.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_8.csv};
+                % \addplot[very thick,solid,color=Turquoise] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_9.csv};
+                \addplot[very thick,dashed,color=Mulberry] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_10.csv};
+                % \addplot[very thick,dotted,color=Emerald] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_11.csv};
+                \addplot[very thick,solid,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_12.csv};
+                % \addplot[very thick,dashed,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_13.csv};
+                \addplot[very thick,dotted,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_14.csv};
+                % \addplot[very thick,solid,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_15.csv};
+                \addplot[very thick,dashed,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_16.csv};
+                % \addplot[very thick,dotted,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_17.csv};
+                \addplot[very thick,solid,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_18.csv};
+                % \addplot[very thick,dashed,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_19.csv};
+                \addplot[very thick,dotted,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_20.csv};
+                % \addplot[very thick,solid,color=Emerald] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_21.csv};
+                \addplot[very thick,dashed,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_22.csv};
+                % \addplot[very thick,dotted,color=OrangeRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_23.csv};
+                \addplot[very thick,solid,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_24.csv};
+                % \addplot[very thick,dashed,color=BurntOrange] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_25.csv};
+                \addplot[very thick,dotted,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_26.csv};
+                % \addplot[very thick,solid,color=BrickRed] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_27.csv};
+                \addplot[very thick,dashed,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_28.csv};
+                % \addplot[very thick,dotted,color=RoyalPurple] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_29.csv};
+                \addplot[very thick,solid,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts_bb/trim_ts_8_30.csv};
+
+                \addplot[very thick,solid,draw opacity=0.2,color=black] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_0.csv};
+                \addplot[very thick,dotted,draw opacity=0.2,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_2.csv};
+                \addplot[very thick,dashed,draw opacity=0.2,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_4.csv};
+                \addplot[very thick,solid,draw opacity=0.2,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_6.csv};
+                \addplot[very thick,dotted,draw opacity=0.2,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_8.csv};
+                \addplot[very thick,dashed,draw opacity=0.2,color=Mulberry] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_10.csv};
+                \addplot[very thick,solid,draw opacity=0.2,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_12.csv};
+                \addplot[very thick,dotted,draw opacity=0.2,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_14.csv};
+                \addplot[very thick,dashed,draw opacity=0.2,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_16.csv};
+                \addplot[very thick,solid,draw opacity=0.2,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_18.csv};
+                \addplot[very thick,dotted,draw opacity=0.2,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_20.csv};
+                \addplot[very thick,dashed,draw opacity=0.2,color=ForestGreen] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_22.csv};
+                \addplot[very thick,solid,draw opacity=0.2,color=Apricot] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_24.csv};
+                \addplot[very thick,dotted,draw opacity=0.2,color=Bittersweet] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_26.csv};
+                \addplot[very thick,dashed,draw opacity=0.2,color=Brown] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_28.csv};
+                \addplot[very thick,solid,draw opacity=0.2,color=NavyBlue] table[x=t,y=p, col sep=semicolon] {plots/n8/p0_0_05/ts/trim_ts_8_30.csv};
+                \legend{
+                    $\beta=2.0$,%$\beta=2.1$,
+                    $\beta=2.2$,%$\beta=2.3$,
+                    $\beta=2.4$,%$\beta=2.5$,
+                    $\beta=2.6$,%$\beta=2.7$,
+                    $\beta=2.8$,%$\beta=2.9$,
+                    $\beta=3.0$,%$\beta=3.1$,
+                    $\beta=3.2$,%$\beta=3.3$,
+                    $\beta=3.4$,%$\beta=3.5$,
+                    $\beta=3.6$,%$\beta=3.7$,
+                    $\beta=3.8$,%$\beta=3.9$,
+                    $\beta=4.0$,%$\beta=4.1$,
+                    $\beta=4.2$,%$\beta=4.3$,
+                    $\beta=4.4$,%$\beta=4.5$,
+                    $\beta=4.6$,%$\beta=4.7$,
+                    $\beta=4.8$,%$\beta=4.9$,
+                    $\beta=5.0$}
+            \end{axis}
+        \end{tikzpicture}
+        \caption{Average adoption probability $P_{\mathrm{share}}$ depending on the time $t$. 
+        The color and linestyle encode the same values for $\beta$ with the opacity encoding wether or not the branch-and-bound implementation is used. 
+        The faded lines correspond to the origina data from \cref{fig:n8p0005}, the clear lines were optained from the branch-and-bound implementation.}
+        \label{fig:branchandbound}
+    \end{figure}
+
+    \begin{acknowledgments}
+        We wish to acknowledge Malte Schröder for posing such an interesting question, providing the data and reading through this report. 
+        Special thanks are due to Hans-Martin Bartram for discussions on various perfect matching implementations.
+    \end{acknowledgments}
+
+    \appendix
+    
+    \section{Additional algorithms}
+    \begin{algorithm}[H]
+        \caption{Detour and length of the shortest paired ride}
+        \label{alg:shortest_paired_ride_detour}
+        \begin{algorithmic}[1]
+            \Procedure{ShortestPairedRideLengthAndDetour}{$\phi_n$}
+                \State $d^e, \Delta d^e_i \leftarrow 0$ \Comment{Even pairing}
+                \For {pair $j$}
+                    \State $d^e \leftarrow d^e + $\Call{Distance}{$\phi_{2j}$, $\phi_{2j + 1}$}
+                    \State $\Delta d^e_{2j}, \Delta d^e_{2j+1} \leftarrow$\Call{Distance}{$\phi_{2j}$, $\phi_{2j + 1}$}
+                \EndFor
+                \State $d^o, \Delta d^o_i \leftarrow 0$ \Comment{Odd pairing}
+                \For {pair $j$}
+                    \State $d^o \leftarrow d^o + $\Call{Distance}{$\phi_{2j + 1}$, $\phi_{2j + 2}$}
+                    \State $\Delta d^e_{2j + 1}, \Delta d^e_{2j+2} \leftarrow$\Call{Distance}{$\phi_{2j + 1}$, $\phi_{2j + 2}$}
+                \EndFor
+                \If {$d^e < d^o$}
+                \State \Return $d^e$, $\Delta d^e_i$
+                \Else
+                \State \Return $d^o$, $\Delta d^o_i$
+                \EndIf
+            \EndProcedure
+        \end{algorithmic}
+    \end{algorithm}
+
+    \section{GitHub}
+
+    The source code can be obtained at \url{https://github.com/tipfom/cdhmt-lecture}.
+
+    % The \nocite command causes all entries in a bibliography to be printed out
+    % whether or not they are actually referenced in the text. This is appropriate
+    % for the sample file to show the different styles of references, but authors
+    % most likely will not want to use it.
+    % \bibliography{apssamp}% Produces the bibliography via BibTeX.
+    \bibliography{refs} 
+
+\end{document}
